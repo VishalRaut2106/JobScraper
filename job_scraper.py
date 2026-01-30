@@ -23,6 +23,11 @@ KEYWORDS = [
     "Entry level software engineer remote"
 ]
 
+import urllib.parse
+# ... (existing imports)
+
+# ... (keyword config)
+
 def get_ddg_results(query):
     ua = UserAgent()
     headers = {'User-Agent': ua.random}
@@ -40,9 +45,6 @@ def get_ddg_results(query):
     soup = BeautifulSoup(response.text, 'html.parser')
     results = []
     
-    # DDG HTML structure: .result -> .result__title -> a (href, text)
-    # .result__snippet (body)
-    
     for result in soup.find_all('div', class_='result'):
         try:
             title_tag = result.find('a', class_='result__a')
@@ -50,7 +52,16 @@ def get_ddg_results(query):
                 continue
                 
             title = title_tag.get_text(strip=True)
-            link = title_tag['href']
+            raw_link = title_tag['href']
+            
+            # Decode DDG redirect to get real link
+            # Format: /l/?uddg=REAL_URL&rut=...
+            if "uddg=" in raw_link:
+                parsed = urllib.parse.urlparse(raw_link)
+                qs = urllib.parse.parse_qs(parsed.query)
+                link = qs.get('uddg', [raw_link])[0]
+            else:
+                link = raw_link
             
             snippet_tag = result.find('a', class_='result__snippet')
             snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
@@ -61,13 +72,11 @@ def get_ddg_results(query):
                 "source": snippet
             })
             
-            # Limit to top 5 per query
             if len(results) >= 5:
                 break
         except Exception:
             continue
             
-    # Sleep briefly to be nice to the server
     time.sleep(1) 
     return results
 
@@ -84,12 +93,14 @@ def send_telegram_alert(jobs):
         print("Telegram secrets not found. Skipping Telegram.")
         return
 
+    # Debug: Print masked secrets to confirm they are loaded (DO NOT PRINT FULL SECRETS)
+    print(f"Debug: Bot Token loaded? {'Yes' if TELEGRAM_BOT_TOKEN else 'No'}")
+    print(f"Debug: Chat ID loaded? {'Yes' if TELEGRAM_CHAT_ID else 'No'}")
+    print(f"Debug: Sending to Chat ID: {TELEGRAM_CHAT_ID} (Verify this matches your user ID)")
+
     print(f"Sending Telegram alert for {len(jobs)} jobs...")
     
     if not jobs:
-        # Optional: Send a heartbeat even if no jobs found, or remain silent.
-        # User asked for "each 10 min", implyng they want to know it's working?
-        # Let's keep it silent if empty to avoid pure spam, or just a small summary.
         return
 
     # Send a header message first
@@ -98,8 +109,7 @@ def send_telegram_alert(jobs):
         resp = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                   json={"chat_id": TELEGRAM_CHAT_ID, "text": header_msg, "parse_mode": "Markdown"})
         print(f"Telegram Header Status: {resp.status_code}")
-        if resp.status_code != 200:
-            print(f"Telegram Error: {resp.text}")
+        print(f"Telegram Header Response: {resp.text}") # Print full response for debugging
     except Exception as e:
         print(f"Telegram Exception: {e}")
 
@@ -112,14 +122,9 @@ def send_telegram_alert(jobs):
             continue
         seen_links.add(job['link'])
         
-        if count >= 10: # Limit to 10 individual messages to prevent blocking
+        if count >= 10: 
             break
             
-        # Format:
-        # 💼 Role Name
-        # 🔗 Apply: [Link]
-        # 📝 Source: ...
-        
         msg = (
             f"💼 **{job['title']}**\n\n"
             f"🔗 [Tap to Apply]({job['link']})\n\n"
@@ -130,12 +135,12 @@ def send_telegram_alert(jobs):
             resp = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                       json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "disable_web_page_preview": True})
             if resp.status_code != 200:
-                print(f"Telegram Job Error: {resp.text}")
+                print(f"Telegram Job {count} Error: {resp.text}")
         except Exception as e:
-            print(f"Telegram Job Exception: {e}")
+            print(f"Telegram Job {count} Exception: {e}")
         
         count += 1
-        time.sleep(1) # Rate limit protection
+        time.sleep(1)
 
 def send_email_alert(jobs):
     if not EMAIL_USER or not EMAIL_PASS:
