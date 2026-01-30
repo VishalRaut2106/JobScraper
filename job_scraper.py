@@ -1,9 +1,11 @@
 import os
 import smtplib
+import time
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import requests
-from duckduckgo_search import DDGS
+from bs4 import BeautifulSoup
+from fake_useragent import UserAgent
 from datetime import datetime
 
 # --- Configuration ---
@@ -17,53 +19,102 @@ KEYWORDS = [
     "Software Engineer Intern 2026",
     "Off-campus drive 2026 fresher",
     "Software Developer freshers hiring",
-    "Summer Internship 2026 India",  # Adjusted for likely region based on requests
+    "Summer Internship 2026 India",
     "Entry level software engineer remote"
 ]
 
+def get_ddg_results(query):
+    ua = UserAgent()
+    headers = {'User-Agent': ua.random}
+    url = "https://html.duckduckgo.com/html/"
+    payload = {'q': query}
+    
+    print(f"Querying: {query}")
+    try:
+        response = requests.post(url, data=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Error fetching {query}: {e}")
+        return []
+
+    soup = BeautifulSoup(response.text, 'html.parser')
+    results = []
+    
+    # DDG HTML structure: .result -> .result__title -> a (href, text)
+    # .result__snippet (body)
+    
+    for result in soup.find_all('div', class_='result'):
+        try:
+            title_tag = result.find('a', class_='result__a')
+            if not title_tag:
+                continue
+                
+            title = title_tag.get_text(strip=True)
+            link = title_tag['href']
+            
+            snippet_tag = result.find('a', class_='result__snippet')
+            snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
+            
+            results.append({
+                "title": title,
+                "link": link,
+                "source": snippet
+            })
+            
+            # Limit to top 5 per query
+            if len(results) >= 5:
+                break
+        except Exception:
+            continue
+            
+    # Sleep briefly to be nice to the server
+    time.sleep(1) 
+    return results
+
 def search_jobs():
-    print("Searching for jobs...")
-    jobs = []
-    with DDGS() as ddgs:
-        for query in KEYWORDS:
-            print(f"Querying: {query}")
-            # 'd' parameter filters for results from the past day
-            results = list(ddgs.text(f"{query}", region='in-en', timelimit='d', max_results=5))
-            for r in results:
-                jobs.append({
-                    "title": r.get("title"),
-                    "link": r.get("href"),
-                    "source": r.get("body")
-                })
-    return jobs
+    print("Searching for jobs via Custom Scraper...")
+    all_jobs = []
+    for query in KEYWORDS:
+        jobs = get_ddg_results(query)
+        all_jobs.extend(jobs)
+    return all_jobs
 
 def send_telegram_alert(jobs):
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Telegram secrets not found. Skipping Telegram.")
         return
 
-    print("Sending Telegram alert...")
-    
-    # Telegram sends concise messages. We'll send one message per interesting job or a summary.
-    # To avoid spamming, let's send a summary.
+    print(f"Sending Telegram alert for {len(jobs)} jobs...")
     
     if not jobs:
         message = "No new jobs found today."
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message})
+        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+                      json={"chat_id": TELEGRAM_CHAT_ID, "text": message})
         return
 
     header = f"🚀 **Daily Job Alert: {datetime.now().strftime('%Y-%m-%d')}**\n\n"
     
-    # Send in chunks if getting too long
+    # Send in chunks
     current_message = header
-    for job in jobs[:10]: # Limit to top 10 to avoid spamming too much in one go
+    count = 0
+    # Deduplicate by link
+    seen_links = set()
+    
+    for job in jobs:
+        if job['link'] in seen_links:
+            continue
+        seen_links.add(job['link'])
+        
+        if count >= 15: # Max 15 unique jobs to avoid spam
+            break
+            
         line = f"🔹 [{job['title']}]({job['link']})\n"
         if len(current_message) + len(line) > 4000:
             requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                           json={"chat_id": TELEGRAM_CHAT_ID, "text": current_message, "parse_mode": "Markdown"})
             current_message = ""
         current_message += line
+        count += 1
 
     if current_message:
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
@@ -78,15 +129,25 @@ def send_email_alert(jobs):
     
     msg = MIMEMultipart()
     msg['From'] = EMAIL_USER
-    msg['To'] = EMAIL_USER # Send to self
+    msg['To'] = EMAIL_USER 
     msg['Subject'] = f"Daily Job Alert - {datetime.now().strftime('%Y-%m-%d')}"
 
     if not jobs:
         body = "No new jobs found today."
     else:
-        body = "<h3>Top Job Picks Today</h3><ul>"
+        body = "<h3>Top Job Picks</h3><ul>"
+        seen_links = set()
+        count = 0
         for job in jobs:
+            if job['link'] in seen_links:
+                continue
+            seen_links.add(job['link'])
+            
+            if count >= 30: # Max 30 for email
+                break
+                
             body += f"<li><a href='{job['link']}'><b>{job['title']}</b></a><br>{job['source']}</li>"
+            count += 1
         body += "</ul>"
 
     msg.attach(MIMEText(body, 'html'))
@@ -109,4 +170,4 @@ if __name__ == "__main__":
         send_telegram_alert(found_jobs)
         send_email_alert(found_jobs)
     else:
-        print("No jobs found, checking if we should alert anyway.")
+        print("No jobs found.")
