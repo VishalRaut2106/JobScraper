@@ -147,12 +147,22 @@ def send_email_alert(jobs):
     msg = MIMEMultipart()
     msg['From'] = EMAIL_USER
     msg['To'] = EMAIL_USER 
-    msg['Subject'] = f"Daily Job Alert - {datetime.now().strftime('%Y-%m-%d')}"
+    msg['Subject'] = f"🚀 Daily Job Alert - {datetime.now().strftime('%Y-%m-%d')}"
 
     if not jobs:
-        body = "No new jobs found today."
+        body = "<p>No new jobs found today.</p>"
     else:
-        body = "<h3>Top Job Picks</h3><ul>"
+        # Professional HTML Template
+        body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto;">
+            <div style="background-color: #f8f9fa; padding: 20px; text-align: center; border-radius: 5px;">
+                <h2 style="color: #2c3e50; margin: 0;">🚀 Daily Job Alert</h2>
+                <p style="color: #7f8c8d;">{datetime.now().strftime('%d %b %Y')}</p>
+            </div>
+            <div style="padding: 20px;">
+        """
+        
         seen_links = set()
         count = 0
         for job in jobs:
@@ -162,10 +172,25 @@ def send_email_alert(jobs):
             
             if count >= 30: # Max 30 for email
                 break
-                
-            body += f"<li><a href='{job['link']}'><b>{job['title']}</b></a><br>{job['source']}</li>"
+            
+            # Job Card
+            body += f"""
+            <div style="margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid #eee;">
+                <h3 style="margin: 0 0 10px; color: #2980b9;">{job['title']}</h3>
+                <p style="margin: 0 0 10px; font-size: 14px; color: #555;">{job['source'][:300]}...</p>
+                <a href="{job['link']}" style="display: inline-block; background-color: #3498db; color: #ffffff; padding: 10px 15px; text-decoration: none; border-radius: 4px; font-weight: bold; font-size: 14px;">Apply Now ➝</a>
+            </div>
+            """
             count += 1
-        body += "</ul>"
+            
+        body += """
+            </div>
+            <div style="text-align: center; padding: 20px; font-size: 12px; color: #aaa;">
+                <p>Automated by GitHub Actions • Job Scraper Bot</p>
+            </div>
+        </body>
+        </html>
+        """
 
     msg.attach(MIMEText(body, 'html'))
 
