@@ -1,0 +1,3 @@
+API Token - 8349544385:AAG2nd8Ockp_dr6vqAcSuIUj0FGb3pPzbCM
+
+chat id - 1692032366
