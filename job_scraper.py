@@ -87,38 +87,44 @@ def send_telegram_alert(jobs):
     print(f"Sending Telegram alert for {len(jobs)} jobs...")
     
     if not jobs:
-        message = "No new jobs found today."
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
-                      json={"chat_id": TELEGRAM_CHAT_ID, "text": message})
+        # Optional: Send a heartbeat even if no jobs found, or remain silent.
+        # User asked for "each 10 min", implyng they want to know it's working?
+        # Let's keep it silent if empty to avoid pure spam, or just a small summary.
         return
 
-    header = f"🚀 **Daily Job Alert: {datetime.now().strftime('%Y-%m-%d')}**\n\n"
-    
-    # Send in chunks
-    current_message = header
-    count = 0
-    # Deduplicate by link
+    # Send a header message first
+    header_msg = f"🔍 **Job Search Update**\n📅 {datetime.now().strftime('%d %b %Y %H:%M')}\nFound {len(jobs)} potential roles."
+    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+                  json={"chat_id": TELEGRAM_CHAT_ID, "text": header_msg, "parse_mode": "Markdown"})
+
+    # Send individual messages for top jobs
     seen_links = set()
+    count = 0
     
     for job in jobs:
         if job['link'] in seen_links:
             continue
         seen_links.add(job['link'])
         
-        if count >= 15: # Max 15 unique jobs to avoid spam
+        if count >= 10: # Limit to 10 individual messages to prevent blocking
             break
             
-        line = f"🔹 [{job['title']}]({job['link']})\n"
-        if len(current_message) + len(line) > 4000:
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
-                          json={"chat_id": TELEGRAM_CHAT_ID, "text": current_message, "parse_mode": "Markdown"})
-            current_message = ""
-        current_message += line
-        count += 1
-
-    if current_message:
+        # Format:
+        # 💼 Role Name
+        # 🔗 Apply: [Link]
+        # 📝 Source: ...
+        
+        msg = (
+            f"💼 **{job['title']}**\n\n"
+            f"🔗 [Tap to Apply]({job['link']})\n\n"
+            f"📝 *Source snippet*: {job['source'][:200]}..."
+        )
+        
         requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
-                      json={"chat_id": TELEGRAM_CHAT_ID, "text": current_message, "parse_mode": "Markdown"})
+                      json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "disable_web_page_preview": True})
+        
+        count += 1
+        time.sleep(1) # Rate limit protection
 
 def send_email_alert(jobs):
     if not EMAIL_USER or not EMAIL_PASS:
