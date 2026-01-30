@@ -94,8 +94,14 @@ def send_telegram_alert(jobs):
 
     # Send a header message first
     header_msg = f"🔍 **Job Search Update**\n📅 {datetime.now().strftime('%d %b %Y %H:%M')}\nFound {len(jobs)} potential roles."
-    requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+    try:
+        resp = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                   json={"chat_id": TELEGRAM_CHAT_ID, "text": header_msg, "parse_mode": "Markdown"})
+        print(f"Telegram Header Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"Telegram Error: {resp.text}")
+    except Exception as e:
+        print(f"Telegram Exception: {e}")
 
     # Send individual messages for top jobs
     seen_links = set()
@@ -120,8 +126,13 @@ def send_telegram_alert(jobs):
             f"📝 *Source snippet*: {job['source'][:200]}..."
         )
         
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
+        try:
+            resp = requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", 
                       json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "Markdown", "disable_web_page_preview": True})
+            if resp.status_code != 200:
+                print(f"Telegram Job Error: {resp.text}")
+        except Exception as e:
+            print(f"Telegram Job Exception: {e}")
         
         count += 1
         time.sleep(1) # Rate limit protection
